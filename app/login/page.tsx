@@ -8,6 +8,7 @@ import Link from 'next/link'
 function LoginForm() {
   const searchParams = useSearchParams()
   const registered = searchParams.get('registered')
+  const confirm = searchParams.get('confirm')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -42,9 +43,14 @@ function LoginForm() {
       <div className="w-full max-w-md">
         <div className="bg-gray-900 rounded-lg p-8 border border-gray-800">
           <h1 className="text-2xl font-bold mb-6 text-center">tumblR</h1>
-          {registered && (
+          {registered && !confirm && (
             <div className="mb-4 p-3 bg-green-900/50 border border-green-700 rounded-lg text-sm text-green-400">
               Account created successfully! Please log in.
+            </div>
+          )}
+          {confirm && (
+            <div className="mb-4 p-3 bg-blue-900/50 border border-blue-700 rounded-lg text-sm text-blue-400">
+              Please check your email and confirm your account before logging in.
             </div>
           )}
           <form onSubmit={handleLogin} className="space-y-4">

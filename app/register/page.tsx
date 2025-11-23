@@ -44,23 +44,18 @@ export default function RegisterPage() {
 
       if (signUpError) throw signUpError
 
-      if (data.user) {
-        // Create user profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            username: username || email.split('@')[0],
-            email: email,
-            is_admin: false,
-          })
-
-        if (profileError) {
-          console.error('Profile creation error:', profileError)
-        }
+      // Profile is automatically created by database trigger
+      // Check if email confirmation is required
+      if (data.user && !data.session) {
+        // Email confirmation required
+        setError('')
+        alert('Registration successful! Please check your email to confirm your account before logging in.')
+        router.push('/login?registered=true&confirm=true')
+      } else {
+        // Auto-logged in (email confirmation disabled)
+        router.push('/')
+        router.refresh()
       }
-
-      router.push('/login?registered=true')
     } catch (err: any) {
       setError(err.message || 'Failed to register')
     } finally {
