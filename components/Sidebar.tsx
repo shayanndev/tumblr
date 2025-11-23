@@ -57,28 +57,46 @@ export default function Sidebar({ user, selectedChat, onSelectChat, isAdmin, onL
   }
 
   const loadUsers = async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, username, email, is_online')
-      .neq('id', user.id)
-      .order('username')
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username, email, is_online')
+        .neq('id', user.id)
+        .order('username')
 
-    if (data) {
-      setOnlineUsers(data)
+      if (error) {
+        console.error('Error loading users:', error)
+        return
+      }
+
+      if (data) {
+        setOnlineUsers(data)
+      }
+    } catch (err) {
+      console.error('Error in loadUsers:', err)
     }
   }
 
   const loadGroups = async () => {
-    const { data } = await supabase
-      .from('group_members')
-      .select('group_id, groups(id, name, created_by)')
-      .eq('user_id', user.id)
+    try {
+      const { data, error } = await supabase
+        .from('group_members')
+        .select('group_id, groups(id, name, created_by)')
+        .eq('user_id', user.id)
 
-    if (data) {
-      const groupList = data
-        .map((item: any) => item.groups)
-        .filter(Boolean) as Group[]
-      setGroups(groupList)
+      if (error) {
+        console.error('Error loading groups:', error)
+        return
+      }
+
+      if (data) {
+        const groupList = data
+          .map((item: any) => item.groups)
+          .filter(Boolean) as Group[]
+        setGroups(groupList)
+      }
+    } catch (err) {
+      console.error('Error in loadGroups:', err)
     }
   }
 
@@ -128,31 +146,47 @@ export default function Sidebar({ user, selectedChat, onSelectChat, isAdmin, onL
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return
 
-    const { data: group, error } = await supabase
-      .from('groups')
-      .insert({
-        name: newGroupName,
-        created_by: user.id,
-      })
-      .select()
-      .single()
+    try {
+      const { data: group, error: groupError } = await supabase
+        .from('groups')
+        .insert({
+          name: newGroupName,
+          created_by: user.id,
+        })
+        .select()
+        .single()
 
-    if (error) {
-      console.error('Error creating group:', error)
-      return
+      if (groupError) {
+        console.error('Error creating group:', groupError)
+        alert(`Failed to create group: ${groupError.message}`)
+        return
+      }
+
+      if (!group) {
+        console.error('Group creation returned no data')
+        return
+      }
+
+      // Add creator as member
+      const { error: memberError } = await supabase
+        .from('group_members')
+        .insert({
+          group_id: group.id,
+          user_id: user.id,
+        })
+
+      if (memberError) {
+        console.error('Error adding creator to group:', memberError)
+        alert(`Group created but failed to add you as member: ${memberError.message}`)
+      }
+
+      setNewGroupName('')
+      setShowCreateGroup(false)
+      loadGroups()
+    } catch (err) {
+      console.error('Error in handleCreateGroup:', err)
+      alert('Failed to create group. Please try again.')
     }
-
-    // Add creator as member
-    await supabase
-      .from('group_members')
-      .insert({
-        group_id: group.id,
-        user_id: user.id,
-      })
-
-    setNewGroupName('')
-    setShowCreateGroup(false)
-    loadGroups()
   }
 
   return (
