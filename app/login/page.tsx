@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
-export default function LoginPage() {
+function LoginForm() {
   const searchParams = useSearchParams()
   const registered = searchParams.get('registered')
   const [email, setEmail] = useState('')
@@ -96,6 +96,23 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black px-4">
+        <div className="w-full max-w-md">
+          <div className="bg-gray-900 rounded-lg p-8 border border-gray-800">
+            <h1 className="text-2xl font-bold mb-6 text-center">tumblR</h1>
+            <div className="text-center text-gray-400">Loading...</div>
+          </div>
+        </div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   )
 }
 

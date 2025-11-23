@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@supabase/supabase-js'
 import { Send, Smile, Mic, X, UserPlus, ArrowLeft } from 'lucide-react'
-import EmojiPicker from 'emoji-picker-react'
+import EmojiPicker, { Theme } from 'emoji-picker-react'
 
 interface ChatWindowProps {
   user: User
@@ -92,17 +92,27 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
 
     if (data) {
       setGroupMembers(data.map((m) => m.user_id))
-    }
 
-    // Load available users for adding to group (if admin)
-    if (isAdmin) {
+      // Load available users for adding to group (if admin)
+      if (isAdmin) {
+        const { data: allUsers } = await supabase
+          .from('profiles')
+          .select('id, username')
+          .neq('id', user.id)
+
+        if (allUsers) {
+          setAvailableUsers(allUsers.filter(u => !data.some(m => m.user_id === u.id)))
+        }
+      }
+    } else if (isAdmin) {
+      // If no members yet, all users are available
       const { data: allUsers } = await supabase
         .from('profiles')
         .select('id, username')
         .neq('id', user.id)
 
       if (allUsers) {
-        setAvailableUsers(allUsers.filter(u => !data.some(m => m.user_id === u.id)))
+        setAvailableUsers(allUsers)
       }
     }
   }
@@ -352,7 +362,7 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
                   onEmojiClick={(emojiData) => {
                     sendMessage('emoji', emojiData.emoji)
                   }}
-                  theme="dark"
+                  theme={Theme.DARK}
                   width="100%"
                 />
               </div>
