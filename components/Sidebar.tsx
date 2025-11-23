@@ -46,6 +46,7 @@ export default function Sidebar({ user, selectedChat, onSelectChat, isAdmin, onL
     return () => {
       updatePresence(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   const updatePresence = async (isOnline: boolean) => {

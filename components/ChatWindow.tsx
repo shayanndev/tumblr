@@ -43,6 +43,7 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
         loadGroupMembers()
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChat])
 
   useEffect(() => {

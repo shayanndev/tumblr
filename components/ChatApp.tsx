@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@supabase/supabase-js'
 import Sidebar from './Sidebar'
@@ -17,11 +17,7 @@ export default function ChatApp({ user }: ChatAppProps) {
   const supabase = createClient()
   const router = useRouter()
 
-  useEffect(() => {
-    checkAdminStatus()
-  }, [user])
-
-  const checkAdminStatus = async () => {
+  const checkAdminStatus = useCallback(async () => {
     const { data } = await supabase
       .from('profiles')
       .select('is_admin')
@@ -31,7 +27,11 @@ export default function ChatApp({ user }: ChatAppProps) {
     if (data) {
       setIsAdmin(data.is_admin)
     }
-  }
+  }, [user.id, supabase])
+
+  useEffect(() => {
+    checkAdminStatus()
+  }, [checkAdminStatus])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
