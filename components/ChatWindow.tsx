@@ -58,12 +58,13 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
     if (!selectedChat) return
 
     try {
+      let messagesData: Message[] = []
+
       if (selectedChat.type === 'dm') {
-        // Fix: Use two separate queries for DM messages to avoid complex OR syntax
         // Get messages where user is sender and other is recipient
         const { data: sentData, error: sentError } = await supabase
           .from('messages')
-          .select('*, profiles(username)')
+          .select('*')
           .eq('sender_id', user.id)
           .eq('recipient_id', selectedChat.id)
           .order('created_at', { ascending: true })
@@ -75,7 +76,7 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
         // Get messages where user is recipient and other is sender
         const { data: receivedData, error: receivedError } = await supabase
           .from('messages')
-          .select('*, profiles(username)')
+          .select('*')
           .eq('sender_id', selectedChat.id)
           .eq('recipient_id', user.id)
           .order('created_at', { ascending: true })
@@ -84,23 +85,16 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
           console.error('Error loading received messages:', receivedError)
         }
 
-        // Combine and sort messages
-        const allMessages = [
+        // Combine messages
+        messagesData = [
           ...(sentData || []),
           ...(receivedData || [])
         ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-
-        setMessages(
-          allMessages.map((msg: any) => ({
-            ...msg,
-            sender_username: msg.profiles?.username || 'Unknown',
-          }))
-        )
       } else {
         // Group messages
         const { data, error } = await supabase
           .from('messages')
-          .select('*, profiles(username)')
+          .select('*')
           .eq('group_id', selectedChat.id)
           .order('created_at', { ascending: true })
 
@@ -109,15 +103,33 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
           return
         }
 
-        if (data) {
-          setMessages(
-            data.map((msg: any) => ({
-              ...msg,
-              sender_username: msg.profiles?.username || 'Unknown',
-            }))
-          )
-        }
+        messagesData = data || []
       }
+
+      // Get unique sender IDs
+      const senderIds = [...new Set(messagesData.map(msg => msg.sender_id))]
+
+      // Fetch usernames for all senders
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .in('id', senderIds)
+
+      // Create a map of user_id -> username
+      const usernameMap = new Map<string, string>()
+      if (profilesData) {
+        profilesData.forEach(profile => {
+          usernameMap.set(profile.id, profile.username)
+        })
+      }
+
+      // Map messages with usernames
+      setMessages(
+        messagesData.map((msg) => ({
+          ...msg,
+          sender_username: usernameMap.get(msg.sender_id) || 'Unknown',
+        }))
+      )
     } catch (err) {
       console.error('Error in loadMessages:', err)
     }
@@ -180,6 +192,7 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
             const newMsg = payload.new as Message
             // Only add if it's for this recipient
             if (newMsg.recipient_id === selectedChat.id) {
+              // Fetch username
               const { data: profile } = await supabase
                 .from('profiles')
                 .select('username')
@@ -213,6 +226,7 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
             const newMsg = payload.new as Message
             // Only add if it's from this sender
             if (newMsg.sender_id === selectedChat.id) {
+              // Fetch username
               const { data: profile } = await supabase
                 .from('profiles')
                 .select('username')
