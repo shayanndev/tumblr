@@ -57,53 +57,69 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
   const loadMessages = async () => {
     if (!selectedChat) return
 
-    let query = supabase
-      .from('messages')
-      .select('*, profiles(username)')
-      .order('created_at', { ascending: true })
+    try {
+      if (selectedChat.type === 'dm') {
+        // Fix: Use two separate queries for DM messages to avoid complex OR syntax
+        // Get messages where user is sender and other is recipient
+        const { data: sentData, error: sentError } = await supabase
+          .from('messages')
+          .select('*, profiles(username)')
+          .eq('sender_id', user.id)
+          .eq('recipient_id', selectedChat.id)
+          .order('created_at', { ascending: true })
 
-    if (selectedChat.type === 'dm') {
-      // Fix: Use proper PostgREST filter syntax for DM messages
-      // Get messages where user is sender and other is recipient, OR user is recipient and other is sender
-      const { data: sentData } = await supabase
-        .from('messages')
-        .select('*, profiles(username)')
-        .eq('sender_id', user.id)
-        .eq('recipient_id', selectedChat.id)
-        .order('created_at', { ascending: true })
+        if (sentError) {
+          console.error('Error loading sent messages:', sentError)
+        }
 
-      const { data: receivedData } = await supabase
-        .from('messages')
-        .select('*, profiles(username)')
-        .eq('sender_id', selectedChat.id)
-        .eq('recipient_id', user.id)
-        .order('created_at', { ascending: true })
+        // Get messages where user is recipient and other is sender
+        const { data: receivedData, error: receivedError } = await supabase
+          .from('messages')
+          .select('*, profiles(username)')
+          .eq('sender_id', selectedChat.id)
+          .eq('recipient_id', user.id)
+          .order('created_at', { ascending: true })
 
-      const allMessages = [
-        ...(sentData || []),
-        ...(receivedData || [])
-      ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        if (receivedError) {
+          console.error('Error loading received messages:', receivedError)
+        }
 
-      setMessages(
-        allMessages.map((msg: any) => ({
-          ...msg,
-          sender_username: msg.profiles?.username || 'Unknown',
-        }))
-      )
-      return
-    } else {
-      query = query.eq('group_id', selectedChat.id)
-    }
+        // Combine and sort messages
+        const allMessages = [
+          ...(sentData || []),
+          ...(receivedData || [])
+        ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 
-    const { data } = await query
+        setMessages(
+          allMessages.map((msg: any) => ({
+            ...msg,
+            sender_username: msg.profiles?.username || 'Unknown',
+          }))
+        )
+      } else {
+        // Group messages
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*, profiles(username)')
+          .eq('group_id', selectedChat.id)
+          .order('created_at', { ascending: true })
 
-    if (data) {
-      setMessages(
-        data.map((msg: any) => ({
-          ...msg,
-          sender_username: msg.profiles?.username || 'Unknown',
-        }))
-      )
+        if (error) {
+          console.error('Error loading group messages:', error)
+          return
+        }
+
+        if (data) {
+          setMessages(
+            data.map((msg: any) => ({
+              ...msg,
+              sender_username: msg.profiles?.username || 'Unknown',
+            }))
+          )
+        }
+      }
+    } catch (err) {
+      console.error('Error in loadMessages:', err)
     }
   }
 
@@ -145,39 +161,113 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
   const subscribeToMessages = () => {
     if (!selectedChat) return
 
-    const channel = supabase
-      .channel(`messages:${selectedChat.type}:${selectedChat.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: selectedChat.type === 'dm'
-            ? `or(and(sender_id.eq.${user.id},recipient_id.eq.${selectedChat.id}),and(sender_id.eq.${selectedChat.id},recipient_id.eq.${user.id}))`
-            : `group_id=eq.${selectedChat.id}`,
-        },
-        async (payload) => {
-          const newMsg = payload.new as Message
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('id', newMsg.sender_id)
-            .single()
+    // For DM, subscribe to both directions separately to avoid complex filter syntax
+    const channels: any[] = []
 
-          setMessages((prev) => [
-            ...prev,
-            {
-              ...newMsg,
-              sender_username: profile?.username || 'Unknown',
-            },
-          ])
-        }
-      )
-      .subscribe()
+    if (selectedChat.type === 'dm') {
+      // Subscribe to messages where current user is sender
+      const channel1 = supabase
+        .channel(`messages:dm:sent:${selectedChat.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `sender_id=eq.${user.id}`,
+          },
+          async (payload) => {
+            const newMsg = payload.new as Message
+            // Only add if it's for this recipient
+            if (newMsg.recipient_id === selectedChat.id) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('username')
+                .eq('id', newMsg.sender_id)
+                .single()
+
+              setMessages((prev) => [
+                ...prev,
+                {
+                  ...newMsg,
+                  sender_username: profile?.username || 'Unknown',
+                },
+              ])
+            }
+          }
+        )
+        .subscribe()
+
+      // Subscribe to messages where current user is recipient
+      const channel2 = supabase
+        .channel(`messages:dm:received:${selectedChat.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `recipient_id=eq.${user.id}`,
+          },
+          async (payload) => {
+            const newMsg = payload.new as Message
+            // Only add if it's from this sender
+            if (newMsg.sender_id === selectedChat.id) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('username')
+                .eq('id', newMsg.sender_id)
+                .single()
+
+              setMessages((prev) => [
+                ...prev,
+                {
+                  ...newMsg,
+                  sender_username: profile?.username || 'Unknown',
+                },
+              ])
+            }
+          }
+        )
+        .subscribe()
+
+      channels.push(channel1, channel2)
+    } else {
+      // Group messages
+      const channel = supabase
+        .channel(`messages:group:${selectedChat.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `group_id=eq.${selectedChat.id}`,
+          },
+          async (payload) => {
+            const newMsg = payload.new as Message
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('username')
+              .eq('id', newMsg.sender_id)
+              .single()
+
+            setMessages((prev) => [
+              ...prev,
+              {
+                ...newMsg,
+                sender_username: profile?.username || 'Unknown',
+              },
+            ])
+          }
+        )
+        .subscribe()
+
+      channels.push(channel)
+    }
 
     return () => {
-      supabase.removeChannel(channel)
+      channels.forEach(ch => supabase.removeChannel(ch))
     }
   }
 
