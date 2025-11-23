@@ -83,6 +83,17 @@ ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 
+-- Create a SECURITY DEFINER function to check group membership (bypasses RLS to avoid recursion)
+CREATE OR REPLACE FUNCTION public.user_is_group_member(group_uuid UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM group_members
+    WHERE group_id = group_uuid AND user_id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
 -- Profiles policies
 CREATE POLICY "Users can view all profiles"
   ON profiles FOR SELECT
@@ -92,12 +103,12 @@ CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   USING (auth.uid() = id);
 
--- Groups policies
+-- Groups policies (FIXED: uses function to avoid recursion)
 CREATE POLICY "Users can view groups they are members of"
   ON groups FOR SELECT
   USING (
     created_by = auth.uid() OR
-    id IN (SELECT group_id FROM group_members WHERE user_id = auth.uid())
+    public.user_is_group_member(id)
   );
 
 CREATE POLICY "Only admins can create groups"
@@ -109,12 +120,13 @@ CREATE POLICY "Only admins can create groups"
     )
   );
 
--- Group members policies
+-- Group members policies (FIXED: uses function to avoid recursion)
 CREATE POLICY "Users can view members of their groups"
   ON group_members FOR SELECT
   USING (
     user_id = auth.uid() OR
-    group_id IN (SELECT group_id FROM group_members WHERE user_id = auth.uid())
+    group_id IN (SELECT id FROM groups WHERE created_by = auth.uid()) OR
+    public.user_is_group_member(group_id)
   );
 
 CREATE POLICY "Only admins can add members to groups"
@@ -130,13 +142,13 @@ CREATE POLICY "Users can leave groups"
   ON group_members FOR DELETE
   USING (user_id = auth.uid());
 
--- Messages policies
+-- Messages policies (FIXED: uses function to avoid recursion)
 CREATE POLICY "Users can view messages they sent or received"
   ON messages FOR SELECT
   USING (
     sender_id = auth.uid() OR
     recipient_id = auth.uid() OR
-    group_id IN (SELECT group_id FROM group_members WHERE user_id = auth.uid())
+    (group_id IS NOT NULL AND public.user_is_group_member(group_id))
   );
 
 CREATE POLICY "Users can send messages"
@@ -163,4 +175,3 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user();
-
