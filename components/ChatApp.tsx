@@ -18,14 +18,23 @@ export default function ChatApp({ user }: ChatAppProps) {
   const router = useRouter()
 
   const checkAdminStatus = useCallback(async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', user.id)
-      .single()
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single()
 
-    if (data) {
-      setIsAdmin(data.is_admin)
+      if (error) {
+        console.error('Error checking admin status:', error)
+        return
+      }
+
+      if (data) {
+        setIsAdmin(data.is_admin || false)
+      }
+    } catch (err) {
+      console.error('Error in checkAdminStatus:', err)
     }
   }, [user.id, supabase])
 

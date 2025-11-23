@@ -63,9 +63,34 @@ export default function ChatWindow({ user, selectedChat, isAdmin, onBackToSideba
       .order('created_at', { ascending: true })
 
     if (selectedChat.type === 'dm') {
-      query = query.or(
-        `and(sender_id.eq.${user.id},recipient_id.eq.${selectedChat.id}),and(sender_id.eq.${selectedChat.id},recipient_id.eq.${user.id})`
+      // Fix: Use proper PostgREST filter syntax for DM messages
+      // Get messages where user is sender and other is recipient, OR user is recipient and other is sender
+      const { data: sentData } = await supabase
+        .from('messages')
+        .select('*, profiles(username)')
+        .eq('sender_id', user.id)
+        .eq('recipient_id', selectedChat.id)
+        .order('created_at', { ascending: true })
+
+      const { data: receivedData } = await supabase
+        .from('messages')
+        .select('*, profiles(username)')
+        .eq('sender_id', selectedChat.id)
+        .eq('recipient_id', user.id)
+        .order('created_at', { ascending: true })
+
+      const allMessages = [
+        ...(sentData || []),
+        ...(receivedData || [])
+      ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+
+      setMessages(
+        allMessages.map((msg: any) => ({
+          ...msg,
+          sender_username: msg.profiles?.username || 'Unknown',
+        }))
       )
+      return
     } else {
       query = query.eq('group_id', selectedChat.id)
     }
